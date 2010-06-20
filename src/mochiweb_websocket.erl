@@ -15,6 +15,9 @@
 
 -define(WEBSOCKET_PREFIX,"HTTP/1.1 101 Web Socket Protocol Handshake\r\nUpgrade: WebSocket\r\nConnection: Upgrade\r\n").
 
+-define(HEX, [{"0", 0}, {"1", 1}, {"2", 2}, {"3", 3}, {"4", 4}, {"5", 5}, {"6", 6}, {"7", 7}, {"8", 8}, {"9", 9},
+              {"a", 10}, {"b", 11}, {"c", 12}, {"d", 13}, {"e", 14}, {"f", 15}]).
+
 set_default({Prop, Value}, PropList) ->
     case proplists:is_defined(Prop, PropList) of
         true ->
@@ -99,12 +102,74 @@ verify_handshake(Socket,Path,Headers) ->
             exit(normal)
     end.
 
+get_digit_space(String) ->
+    char_filter([], [], String).
+char_filter(Digits, Spaces, []) ->
+    {list_to_integer(Digits), length(Spaces)};
+char_filter(Digits, Spaces, [H|T]) ->
+    try list_to_integer([H]),
+        char_filter(Digits ++ [H], Spaces, T)
+    catch error:_ ->
+        case H of
+            32  ->
+                char_filter(Digits, Spaces ++ [H], T);
+            _   ->
+                char_filter(Digits, Spaces, T)
+        end
+    end.
+
+make_challenge(Part_1, Part_2, Key_3) ->
+    %Sample = to_32bit_int(lists:flatten(io_lib:format("~8.16.0b~8.16.0b", [906585445, 179922739]))) ++ "WjN}|M(6",
+    %error_logger:info_msg("Sample: ~p~n", [{Sample, erlang:md5(Sample)}]),
+    to_32bit_int(lists:flatten(io_lib:format("~8.16.0b~8.16.0b", [Part_1, Part_2]))) ++ binary_to_list(Key_3).
+to_32bit_int(Parts) ->
+    %error_logger:info_msg("to_32bit_int:Parts: ~p~n", [{Parts}]),
+    to_32bit_int([], Parts).
+to_32bit_int(Result, []) ->
+    Result;
+to_32bit_int(Result, [H1,H2|T]) ->
+    {_, H1_} = lists:keyfind([H1], 1, ?HEX),
+    {_, H2_} = lists:keyfind([H2], 1, ?HEX),
+    %error_logger:info_msg("to_32bit_int:H1,H2: ~p~n", [{H1_, H2_}]),
+    to_32bit_int(Result ++ [H1_*16+H2_], T).
+
 send_handshake(Socket,Path,Headers) ->
     Origin = proplists:get_value("Origin",Headers),
     Location = proplists:get_value('Host',Headers),
+    %draft-76: 5.2.2
+    Key_1 = proplists:get_value("Sec-Websocket-Key1",Headers),
+    Key_2 = proplists:get_value("Sec-Websocket-Key2",Headers),
+    %draft-76: 5.2.4
+    %draft-76: 5.2.5
+    {Key_number_1, Spaces_1} = get_digit_space(Key_1),
+    {Key_number_2, Spaces_2} = get_digit_space(Key_2),
+    %draft-76: 5.2.6
+    0 = Key_number_1 rem Spaces_1,
+    0 = Key_number_2 rem Spaces_2,
+    %draft-76: 5.2.7
+    Part_1 = Key_number_1 div Spaces_1,
+    Part_2 = Key_number_2 div Spaces_2,
+    %draft-76: 5.2.8
+    inet:setopts(Socket, [{packet, raw}]),
+    {ok, Key_3} = gen_tcp:recv(Socket, 0),
+    Challenge = make_challenge(Part_1, Part_2, Key_3),
+    %draft-76: 5.2.9
+    Response = erlang:md5(Challenge),
+    %draft-76: 5.2.10
     Resp = ?WEBSOCKET_PREFIX ++
-	"WebSocket-Origin: " ++ Origin ++ "\r\n" ++
-	"WebSocket-Location: ws://" ++ Location ++ Path ++ "\r\n\r\n",
+    %draft-76: 5.2.11
+    "Sec-WebSocket-Origin: " ++ Origin ++ "\r\n" ++
+    "Sec-WebSocket-Location: ws://" ++ Location ++ Path ++
+    %draft-76: 5.2.12
+    "\r\n\r\n" ++
+    %draft-76: 5.2.13
+    Response,
+    %error_logger:info_msg("Sec-Websocket-Keys: ~p~n", [
+            %[{"key_1", Key_1}, {"key_2", Key_2}, {"key_3", Key_3},
+             %{"key-number_1", Key_number_1}, {"key-number_2", Key_number_2},
+             %{"spaces_1", Spaces_1}, {"spaces_2", Spaces_2},
+             %{"part_1", Part_1}, {"part_2", Part_2},
+             %{"challenge", Challenge}, {"response", Response, binary_to_list(Response)}]]),
     gen_tcp:send(Socket, Resp).
 
 request(Socket, MyLoop) ->
