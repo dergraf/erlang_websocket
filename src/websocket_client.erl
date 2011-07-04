@@ -94,7 +94,7 @@ handle_info({http,Socket,http_eoh},State) ->
 	     case proplists:get_value('Upgrade',Headers) of
 		 "WebSocket" ->
 		     inet:setopts(Socket, [{packet, raw}]),
-		     State1 = State#state{readystate=?OPEN,socket=Socket},
+		     State1 = State#state{socket=Socket},
 		     Mod = State#state.callback,
 		     Mod:onopen(),
 		     {noreply,State1};
@@ -107,13 +107,21 @@ handle_info({http,Socket,http_eoh},State) ->
     end;
 
 %% Handshake complete, handle packets
-handle_info({tcp, _Socket, Data},State) ->
+handle_info({tcp, Socket, Data},State) ->
+    % io:format("handle_info({tcp, ~p, ~p}, ~p)~n", [Socket, Data, State]),
     case State#state.readystate of
 	?OPEN ->
+        % io:format("Will call unframe with Data = ~p~n", [Data]),
 	    D = unframe(binary_to_list(Data)),
 	    Mod = State#state.callback,
 	    Mod:onmessage(D),
-	    {noreply,State};
+	    {noreply, State};
+    ?CONNECTING ->
+        <<_:16/bytes,Rest/bytes>> = Data,
+        case Rest of 
+        <<>> -> {noreply, State#state{readystate=?OPEN}};
+        _  -> handle_info({tcp, Socket, Rest}, State#state{readystate=?OPEN})
+        end;
 	_Any ->
 	    {stop,error,State}
     end;
@@ -145,11 +153,21 @@ code_change(_OldVsn, State, _Extra) ->
 initial_request(Host,Path) ->
     "GET "++ Path ++" HTTP/1.1\r\nUpgrade: WebSocket\r\nConnection: Upgrade\r\n" ++ 
 	"Host: " ++ Host ++ "\r\n" ++
-	"Origin: http://" ++ Host ++ "/\r\n\r\n".
+	"Origin: http://" ++ Host ++ "/\r\n" ++
+    "Sec-WebSocket-Key1: 4y n D9118J  7 9Z 2      4\r\n" ++
+    "Sec-WebSocket-Key2: 1487^9  C9201V2\r\n\r\n" ++
+    [16#cb, 16#15, 16#88, 16#c8, 
+     16#91, 16#15, 16#e1, 16#92].
 
 
-unframe([0|T]) -> unframe1(T).
-unframe1([255]) -> [];
-unframe1([H|T]) -> [H|unframe1(T)].
+unframe(Param=[0|T]) -> 
+    % io:format("unframe(~p)~n", [Param]),
+    unframe1(T).
+unframe1([255]) -> 
+    % io:format("unframe1([255])~n"),
+    [];
+unframe1(Param=[H|T]) -> 
+    % io:format("unframe1(~p)~n", [Param]),
+    [H|unframe1(T)].
 
     

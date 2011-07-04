@@ -12,7 +12,7 @@ send(Data) ->
     websocket_client:write(Data).
 
 start() ->
-    websocket_client:start("localhost",8002,?MODULE).
+    websocket_client:start("localhost",8000,?MODULE).
 
 onmessage(Data) ->
     io:format("Got some data:: ~p~n",[Data]).
@@ -21,8 +21,8 @@ onclose() ->
     io:format("Connection closed~n").
 
 onopen() ->
-    io:format("Connection open~n"),
-    send("client-connected").
+    io:format("Connection open~n").
+    % send("client-connected").
 
 close() ->
     websocket_client:close().
