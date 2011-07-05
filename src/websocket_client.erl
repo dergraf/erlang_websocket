@@ -13,7 +13,7 @@
 -behaviour(gen_server).
 
 %% API
--export([start/3,write/1,close/0,initial_request/2]).
+-export([start/3,write/1,close/0,initial_request/2,initial_request/3]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -163,11 +163,16 @@ code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
 initial_request(Host,Path) ->
+    initial_request(Host, Path, undefined).
+
+initial_request(Host,Path,Cookie) ->
+    CookieString = case Cookie of undefined -> "" ; _ -> "Cookie: " ++ Cookie ++ "\r\n" end,
     "GET "++ Path ++" HTTP/1.1\r\nUpgrade: WebSocket\r\nConnection: Upgrade\r\n" ++ 
 	"Host: " ++ Host ++ "\r\n" ++
 	"Origin: http://" ++ Host ++ "\r\n" ++
     "Sec-WebSocket-Key1: 4y n D9118J  7 9Z 2      4\r\n" ++
     "Sec-WebSocket-Key2: 1487^9  C9201V2\r\n\r\n" ++
+    CookieString ++
     [16#cb, 16#15, 16#88, 16#c8, 
      16#91, 16#15, 16#e1, 16#92].
 
