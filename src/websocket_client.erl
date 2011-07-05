@@ -13,7 +13,7 @@
 -behaviour(gen_server).
 
 %% API
--export([start/3,write/1,close/0]).
+-export([start/3,write/1,close/0,initial_request/2]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -147,26 +147,27 @@ terminate(Reason, _State) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-%%--------------------------------------------------------------------
-%%% Internal functions
-%%--------------------------------------------------------------------
 initial_request(Host,Path) ->
     "GET "++ Path ++" HTTP/1.1\r\nUpgrade: WebSocket\r\nConnection: Upgrade\r\n" ++ 
 	"Host: " ++ Host ++ "\r\n" ++
-	"Origin: http://" ++ Host ++ "/\r\n" ++
+	"Origin: http://" ++ Host ++ "\r\n" ++
     "Sec-WebSocket-Key1: 4y n D9118J  7 9Z 2      4\r\n" ++
     "Sec-WebSocket-Key2: 1487^9  C9201V2\r\n\r\n" ++
     [16#cb, 16#15, 16#88, 16#c8, 
      16#91, 16#15, 16#e1, 16#92].
 
+%%--------------------------------------------------------------------
+%%% Internal functions
+%%--------------------------------------------------------------------
 
-unframe(Param=[0|T]) -> 
+
+unframe(_Param=[0|T]) -> 
     % io:format("unframe(~p)~n", [Param]),
     unframe1(T).
 unframe1([255]) -> 
     % io:format("unframe1([255])~n"),
     [];
-unframe1(Param=[H|T]) -> 
+unframe1(_Param=[H|T]) -> 
     % io:format("unframe1(~p)~n", [Param]),
     [H|unframe1(T)].
 
