@@ -28,11 +28,15 @@
 -export([behaviour_info/1]).
 
 behaviour_info(callbacks) ->
-    [{onmessage,1},{onopen,0},{onclose,0},{close,0},{send,1}];
+    [{onmessage,2},{onopen,1},{onclose,1}];
 behaviour_info(_) ->
     undefined.
 
--record(state, {socket,readystate=undefined,headers=[],callback}).
+-record(state, {socket,
+                readystate=undefined,
+                headers=[],
+                callback,
+                client_state}).
 
 start(Host,Port,Mod) ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [{Host,Port,Mod}], []).
@@ -63,9 +67,9 @@ handle_cast({send,Data}, State) ->
 
 handle_cast(close,State) ->
     Mod = State#state.callback,
-    Mod:onclose(),
+    ClientState1 = Mod:onclose(State#state.ClientState),
     gen_tcp:close(State#state.socket),
-    State1 = State#state{readystate=?CLOSED},
+    State1 = State#state{readystate=?CLOSED,client_state=ClientState1},
     {stop,normal,State1}.
 
 %% Start handshake
@@ -96,8 +100,7 @@ handle_info({http,Socket,http_eoh},State) ->
 		     inet:setopts(Socket, [{packet, raw}]),
 		     State1 = State#state{socket=Socket},
 		     Mod = State#state.callback,
-		     Mod:onopen(),
-		     {noreply,State1};
+		     {noreply,State1#state{client_state=Mod:onopen()}};
 		 _Any  ->
 		     {stop,error,State}
 	     end;
@@ -113,9 +116,8 @@ handle_info({tcp, Socket, Data},State) ->
 	?OPEN ->
         % io:format("Will call unframe with Data = ~p~n", [Data]),
 	    D = unframe(binary_to_list(Data)),
-	    Mod = State#state.callback,
-	    Mod:onmessage(D),
-	    {noreply, State};
+	    Mod = State#state.callback,	    
+	    {noreply, State#state{client_state=Mod:onmessage(D)}};
     ?CONNECTING ->
         <<_:16/bytes,Rest/bytes>> = Data,
         case Rest of 
@@ -128,8 +130,7 @@ handle_info({tcp, Socket, Data},State) ->
 
 handle_info({tcp_closed, _Socket},State) ->
     Mod = State#state.callback,
-    Mod:onclose(),
-    {stop,normal,State};
+    {stop,normal,State#state{client_state=Mod:onclose()}};
 
 handle_info({tcp_error, _Socket, _Reason},State) ->
     {stop,tcp_error,State};
