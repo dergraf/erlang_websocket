@@ -62,7 +62,7 @@ close() ->
     gen_server:cast(?MODULE,close).
 
 handle_cast({send,Data}, State) ->
-    gen_tcp:send(State#state.socket,[0] ++ Data ++ [255]),
+    gen_tcp:send(State#state.socket,iolist_to_binary([0,Data,255])),
     {noreply, State};
 
 handle_cast(close,State) ->
@@ -73,8 +73,9 @@ handle_cast(close,State) ->
     {stop,normal,State1};
 
 handle_cast(Unknown,State) ->
+    % io:format("websocket_client: Redirecting unknown cast ~p~n", [Unknown]),
     Mod = State#state.callback,
-    {Resp, ClientState1} = Mod:oncast(Unknown, State),
+    {Resp, ClientState1} = Mod:oncast(Unknown, State#state.client_state),
     {Resp, State#state{client_state=ClientState1}}.
 
 %% Start handshake
@@ -148,7 +149,7 @@ handle_info({'EXIT', _Pid, _Reason},State) ->
 
 handle_info(Unknown, State) ->
     Mod = State#state.callback,
-    {Resp, ClientState1} = Mod:oninfo(Unknown, State),
+    {Resp, ClientState1} = Mod:oninfo(Unknown, State#state.client_state),
     {Resp, State#state{client_state=ClientState1}}.
 
 handle_call(_Request,_From,State) ->
