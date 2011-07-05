@@ -28,7 +28,7 @@
 -export([behaviour_info/1]).
 
 behaviour_info(callbacks) ->
-    [{onmessage,2},{onopen,1},{onclose,1}];
+    [{onmessage,2},{onopen,1},{onclose,1},{oninfo,2},{oncast,2}];
 behaviour_info(_) ->
     undefined.
 
@@ -67,10 +67,15 @@ handle_cast({send,Data}, State) ->
 
 handle_cast(close,State) ->
     Mod = State#state.callback,
-    ClientState1 = Mod:onclose(State#state.ClientState),
+    {_Resp, ClientState1} = Mod:onclose(State#state.client_state),
     gen_tcp:close(State#state.socket),
     State1 = State#state{readystate=?CLOSED,client_state=ClientState1},
-    {stop,normal,State1}.
+    {stop,normal,State1};
+
+handle_cast(Unknown,State) ->
+    Mod = State#state.callback,
+    {Resp, ClientState1} = Mod:oncast(Unknown, State),
+    {Resp, State#state{client_state=ClientState1}}.
 
 %% Start handshake
 handle_info({http,Socket,{http_response,{1,1},101,"Web Socket Protocol Handshake"}}, State) ->
@@ -100,7 +105,8 @@ handle_info({http,Socket,http_eoh},State) ->
 		     inet:setopts(Socket, [{packet, raw}]),
 		     State1 = State#state{socket=Socket},
 		     Mod = State#state.callback,
-		     {noreply,State1#state{client_state=Mod:onopen()}};
+             {Resp, ClientState1} = Mod:onopen(State1#state.client_state),
+		     {Resp, State1#state{client_state=ClientState1}};
 		 _Any  ->
 		     {stop,error,State}
 	     end;
@@ -117,7 +123,8 @@ handle_info({tcp, Socket, Data},State) ->
         % io:format("Will call unframe with Data = ~p~n", [Data]),
 	    D = unframe(binary_to_list(Data)),
 	    Mod = State#state.callback,	    
-	    {noreply, State#state{client_state=Mod:onmessage(D)}};
+        {Resp, ClientState1} = Mod:onmessage(D, State#state.client_state),
+	    {Resp, State#state{client_state=ClientState1}};
     ?CONNECTING ->
         <<_:16/bytes,Rest/bytes>> = Data,
         case Rest of 
@@ -130,13 +137,19 @@ handle_info({tcp, Socket, Data},State) ->
 
 handle_info({tcp_closed, _Socket},State) ->
     Mod = State#state.callback,
-    {stop,normal,State#state{client_state=Mod:onclose()}};
+    {_Resp, ClientState1} = Mod:onclose(State#state.client_state),
+    {stop,normal,State#state{client_state=ClientState1}};
 
 handle_info({tcp_error, _Socket, _Reason},State) ->
     {stop,tcp_error,State};
 
 handle_info({'EXIT', _Pid, _Reason},State) ->
-    {noreply,State}.
+    {noreply,State};
+
+handle_info(Unknown, State) ->
+    Mod = State#state.callback,
+    {Resp, ClientState1} = Mod:oninfo(Unknown, State),
+    {Resp, State#state{client_state=ClientState1}}.
 
 handle_call(_Request,_From,State) ->
     {reply,ok,State}.
