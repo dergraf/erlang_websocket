@@ -36,6 +36,7 @@ behaviour_info(_) ->
                 readystate=undefined,
                 headers=[],
                 callback,
+                incomplete_chunk,
                 client_state}).
 
 start(Host,Port,Mod) ->
@@ -122,10 +123,16 @@ handle_info({tcp, Socket, Data},State) ->
     case State#state.readystate of
 	?OPEN ->
         % io:format("Will call unframe with Data = ~p~n", [Data]),
-	    D = unframe(binary_to_list(Data)),
-	    Mod = State#state.callback,	    
-        {Resp, ClientState1} = Mod:onmessage(D, State#state.client_state),
-	    {Resp, State#state{client_state=ClientState1}};
+            {Chunks, Incomplete} = unframe(binary_to_list(Data), State#state.incomplete_chunk),
+            Mod = State#state.callback,	    
+            {Resp, ClientState1} = lists:foldl(fun(_Chunk, {stop, ClientState}) -> 
+                                                       {stop, ClientState};
+                                                  (Chunk,  {noreply, ClientState}) -> 
+                                                       Mod:onmessage(Chunk, ClientState)
+                                               end,
+                                               {noreply, State#state.client_state},
+                                               Chunks),
+            {Resp, State#state{client_state=ClientState1, incomplete_chunk=Incomplete}};
     ?CONNECTING ->
         <<_:16/bytes,Rest/bytes>> = Data,
         case Rest of 
@@ -180,15 +187,14 @@ initial_request(Host,Path,Cookie) ->
 %%% Internal functions
 %%--------------------------------------------------------------------
 
+unframe1([0|T], [undefined|Chunks]) ->
+    unframe1(T, [[]|Chunks]);
+unframe1([255|T], Chunks) ->
+    unframe1(T, [undefined|Chunks]);
+unframe1([], [Incomplete|Chunks]) ->
+    {lists:reverse(Chunks), Incomplete};
+unframe1([H|T], [CurChunk|Chunks]) when is_list(CurChunk) ->
+    unframe1(T, [[H|CurChunk]|Chunks]).
 
-unframe(_Param=[0|T]) -> 
-    % io:format("unframe(~p)~n", [Param]),
-    unframe1(T).
-unframe1([255]) -> 
-    % io:format("unframe1([255])~n"),
-    [];
-unframe1(_Param=[H|T]) -> 
-    % io:format("unframe1(~p)~n", [Param]),
-    [H|unframe1(T)].
-
-    
+unframe(Data, IncompleteChunk) ->
+    unframe1(Data, [IncompleteChunk]).
