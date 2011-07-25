@@ -13,7 +13,7 @@
 -behaviour(gen_server).
 
 %% API
--export([start/3,write/1,close/0,initial_request/2,initial_request/3]).
+-export([start/3,start/4,write/1,close/0,initial_request/2,initial_request/3]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -40,15 +40,20 @@ behaviour_info(_) ->
                 client_state}).
 
 start(Host,Port,Mod) ->
-    gen_server:start_link({local, ?MODULE}, ?MODULE, [{Host,Port,Mod}], []).
+    start(Host,Port,"/",Mod).
+
+start(Host,Port,Path,Mod) ->
+    gen_server:start_link({local, ?MODULE}, ?MODULE, [{Host,Port,Path,Mod}], []).
+
+
 
 init(Args) ->
     process_flag(trap_exit,true),
-    [{Host,Port,Mod}] = Args,
+    [{Host,Port,Path,Mod}] = Args,
     {ok, Sock} = gen_tcp:connect(Host,Port,[binary,{packet, 0},{active,true}]),
     
     %% Hardcoded path for now...
-    Req = initial_request(Host,"/"),
+    Req = initial_request(Host,Path),
     ok = gen_tcp:send(Sock,Req),
     inet:setopts(Sock, [{packet, http}]),
     
@@ -107,7 +112,9 @@ handle_info({http,Socket,http_eoh},State) ->
 		     inet:setopts(Socket, [{packet, raw}]),
 		     State1 = State#state{socket=Socket},
 		     Mod = State#state.callback,
+             io:format("Calling onopen~n"),
              {Resp, ClientState1} = Mod:onopen(State1#state.client_state),
+             io:format("onopen is done ~p~n", [{Resp, ClientState1}]),
 		     {Resp, State1#state{client_state=ClientState1}};
 		 _Any  ->
 		     {stop,error,State}
