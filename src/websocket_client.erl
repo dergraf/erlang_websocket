@@ -112,9 +112,7 @@ handle_info({http,Socket,http_eoh},State) ->
 		     inet:setopts(Socket, [{packet, raw}]),
 		     State1 = State#state{socket=Socket},
 		     Mod = State#state.callback,
-             io:format("Calling onopen~n"),
              {Resp, ClientState1} = Mod:onopen(State1#state.client_state),
-             io:format("onopen is done ~p~n", [{Resp, ClientState1}]),
 		     {Resp, State1#state{client_state=ClientState1}};
 		 _Any  ->
 		     {stop,error,State}
