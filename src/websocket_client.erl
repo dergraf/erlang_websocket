@@ -194,8 +194,8 @@ initial_request(Host,Path,Cookie) ->
 
 unframe1([0|T], [undefined|Chunks]) ->
     unframe1(T, [[]|Chunks]);
-unframe1([255|T], Chunks) ->
-    unframe1(T, [undefined|Chunks]);
+unframe1([255|T], [CurChunk|Chunks]) ->
+    unframe1(T, [undefined,lists:reverse(CurChunk)|Chunks]);
 unframe1([], [Incomplete|Chunks]) ->
     {lists:reverse(Chunks), Incomplete};
 unframe1([H|T], [CurChunk|Chunks]) when is_list(CurChunk) ->
