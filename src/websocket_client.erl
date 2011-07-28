@@ -28,7 +28,7 @@
 -export([behaviour_info/1]).
 
 behaviour_info(callbacks) ->
-    [{onmessage,2},{onopen,1},{onclose,1},{oninfo,2},{oncast,2}];
+    [{onmessage,2},{onopen,1},{onclose,1},{oninfo,2},{oncast,2},{oncall,3},{oninit,1}];
 behaviour_info(_) ->
     undefined.
 
@@ -43,21 +43,29 @@ start(Host,Port,Mod) ->
     start(Host,Port,"/",Mod).
 
 start(Host,Port,Path,Mod) ->
-    gen_server:start_link({local, ?MODULE}, ?MODULE, [{Host,Port,Path,Mod}], []).
+    start(Host,Port,Path,Mod,undefined).
 
-
+start(Host,Port,Path,Mod,ClientArgs) ->
+    gen_server:start_link({local, ?MODULE}, ?MODULE, [{Host,Port,Path,Mod,ClientArgs}], []).
 
 init(Args) ->
     process_flag(trap_exit,true),
-    [{Host,Port,Path,Mod}] = Args,
+    [{Host,Port,Path,Mod,ClientArgs}] = Args,
     {ok, Sock} = gen_tcp:connect(Host,Port,[binary,{packet, 0},{active,true}]),
     
     %% Hardcoded path for now...
     Req = initial_request(Host,Path),
     ok = gen_tcp:send(Sock,Req),
     inet:setopts(Sock, [{packet, http}]),
-    
-    {ok,#state{socket=Sock,callback=Mod}}.
+    case Mod:oninit(ClientArgs) of
+        {ok, ClientState} ->
+            {ok, #state{socket=Sock,callback=Mod,client_state=ClientState}};
+        {ok, ClientState, Timeout} ->
+            {ok, #state{socket=Sock,callback=Mod,client_state=ClientState}, Timeout};
+        {stop, Reason} ->
+            {stop, Reason}
+    end.
+            
 
 %% Write to the server
 write(Data) ->
@@ -164,8 +172,18 @@ handle_info(Unknown, State) ->
     {Resp, ClientState1} = Mod:oninfo(Unknown, State#state.client_state),
     {Resp, State#state{client_state=ClientState1}}.
 
-handle_call(_Request,_From,State) ->
-    {reply,ok,State}.
+handle_call(Unknown,From,State) ->
+    Mod = State#state.callback,
+    case Mod:oncall(Unknown, From, State#state.client_state) of
+        {reply, Reply, ClientState1} ->
+            {reply, Reply, State#state{client_state=ClientState1}};
+        {stop, Reason, ClientState1} ->
+            {stop, Reason, State#state{client_state=ClientState1}};
+        {stop, Reason, Reply, ClientState1} ->
+            {stop, Reason, Reply, State#state{client_state=ClientState1}};
+        {noreply, ClientState1} ->
+            {noreply, State#state{client_state=ClientState1}}
+    end.
 
 terminate(Reason, _State) ->
     error_logger:info_msg("Terminated ~p~n",[Reason]),
