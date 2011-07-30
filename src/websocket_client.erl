@@ -13,7 +13,7 @@
 -behaviour(gen_server).
 
 %% API
--export([start/3,start/4,write/1,close/0,initial_request/2,initial_request/3]).
+-export([start/3,start/4,start/5,write/1,close/0,initial_request/2,initial_request/3]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -169,8 +169,12 @@ handle_info({'EXIT', _Pid, _Reason},State) ->
 
 handle_info(Unknown, State) ->
     Mod = State#state.callback,
-    {Resp, ClientState1} = Mod:oninfo(Unknown, State#state.client_state),
-    {Resp, State#state{client_state=ClientState1}}.
+    case Mod:oninfo(Unknown, State#state.client_state) of
+        {noreply, ClientState1} ->
+            {noreply, State#state{client_state=ClientState1}};
+        {stop, Reason, ClientState1} ->
+            {stop, Reason, State#state{client_state=ClientState1}}
+    end.
 
 handle_call(Unknown,From,State) ->
     Mod = State#state.callback,
