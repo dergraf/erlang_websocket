@@ -81,7 +81,7 @@ handle_cast({send,Data}, State) ->
 
 handle_cast(close,State) ->
     Mod = State#state.callback,
-    {_Resp, ClientState1} = Mod:onclose(State#state.client_state),
+    ClientState1 = Mod:onclose(State#state.client_state),
     gen_tcp:close(State#state.socket),
     State1 = State#state{readystate=?CLOSED,client_state=ClientState1},
     {stop,normal,State1};
@@ -158,7 +158,7 @@ handle_info({tcp, Socket, Data},State) ->
 
 handle_info({tcp_closed, _Socket},State) ->
     Mod = State#state.callback,
-    {_Resp, ClientState1} = Mod:onclose(State#state.client_state),
+    ClientState1 = Mod:onclose(State#state.client_state),
     {stop,normal,State#state{client_state=ClientState1}};
 
 handle_info({tcp_error, _Socket, _Reason},State) ->
