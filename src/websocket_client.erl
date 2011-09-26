@@ -96,6 +96,9 @@ handle_cast(Unknown,State) ->
 handle_info({http,Socket,{http_response,{1,1},101,"Web Socket Protocol Handshake"}}, State) ->
     State1 = State#state{readystate=?CONNECTING,socket=Socket},
     {noreply, State1};
+handle_info({http,Socket,{http_response,{1,1},101,"WebSocket Protocol Handshake"}}, State) ->
+    State1 = State#state{readystate=?CONNECTING,socket=Socket},
+    {noreply, State1};
 
 %% Extract the headers
 handle_info({http,Socket,{http_header, _, Name, _, Value}},State) ->
