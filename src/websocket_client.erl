@@ -82,6 +82,7 @@ handle_cast({send,Data}, State) ->
 handle_cast(close,State) ->
     Mod = State#state.callback,
     ClientState1 = Mod:onclose(State#state.client_state),
+    gen_tcp:send(State#state.socket,iolist_to_binary([255,0])),
     gen_tcp:close(State#state.socket),
     State1 = State#state{readystate=?CLOSED,client_state=ClientState1},
     {stop,normal,State1};
