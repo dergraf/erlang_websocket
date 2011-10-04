@@ -13,7 +13,7 @@
 -behaviour(gen_server).
 
 %% API
--export([start/3,start/4,start/5,write/1,close/0,initial_request/2,initial_request/3]).
+-export([start_link/3,start_link/4,start_link/5,start/3,start/4,start/5,write/1,close/0,initial_request/2,initial_request/3]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -39,6 +39,15 @@ behaviour_info(_) ->
                 incomplete_chunk,
                 client_state}).
 
+start_link(Host,Port,Mod) ->
+    start_link(Host,Port,"/",Mod).
+
+start_link(Host,Port,Path,Mod) ->
+    start_link(Host,Port,Path,Mod,undefined).
+
+start_link(Host,Port,Path,Mod,ClientArgs) ->
+    gen_server:start_link({local, ?MODULE}, ?MODULE, [{Host,Port,Path,Mod,ClientArgs}], []).
+
 start(Host,Port,Mod) ->
     start(Host,Port,"/",Mod).
 
@@ -46,7 +55,7 @@ start(Host,Port,Path,Mod) ->
     start(Host,Port,Path,Mod,undefined).
 
 start(Host,Port,Path,Mod,ClientArgs) ->
-    gen_server:start_link({local, ?MODULE}, ?MODULE, [{Host,Port,Path,Mod,ClientArgs}], []).
+    gen_server:start({local, ?MODULE}, ?MODULE, [{Host,Port,Path,Mod,ClientArgs}], []).
 
 init(Args) ->
     process_flag(trap_exit,true),
