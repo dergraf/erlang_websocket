@@ -13,7 +13,7 @@
 -behaviour(gen_server).
 
 %% API
--export([start_link/3,start_link/4,start_link/5,start/3,start/4,start/5,write/1,close/0,initial_request/2,initial_request/3]).
+-export([start_link/4,start_link/5,start_link/6,start/4,start/5,start/6,write/2,close/1,initial_request/2,initial_request/3]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -39,23 +39,23 @@ behaviour_info(_) ->
                 incomplete_chunk,
                 client_state}).
 
-start_link(Host,Port,Mod) ->
-    start_link(Host,Port,"/",Mod).
+start_link(Name,Host,Port,Mod) ->
+    start_link(Name,Host,Port,"/",Mod).
 
-start_link(Host,Port,Path,Mod) ->
-    start_link(Host,Port,Path,Mod,undefined).
+start_link(Name,Host,Port,Path,Mod) ->
+    start_link(Name,Host,Port,Path,Mod,undefined).
 
-start_link(Host,Port,Path,Mod,ClientArgs) ->
-    gen_server:start_link({local, ?MODULE}, ?MODULE, [{Host,Port,Path,Mod,ClientArgs}], []).
+start_link(Name,Host,Port,Path,Mod,ClientArgs) ->
+    gen_server:start_link({local, Name}, ?MODULE, [{Host,Port,Path,Mod,ClientArgs}], []).
 
-start(Host,Port,Mod) ->
-    start(Host,Port,"/",Mod).
+start(Name,Host,Port,Mod) ->
+    start(Name,Host,Port,"/",Mod).
 
-start(Host,Port,Path,Mod) ->
-    start(Host,Port,Path,Mod,undefined).
+start(Name,Host,Port,Path,Mod) ->
+    start(Name,Host,Port,Path,Mod,undefined).
 
-start(Host,Port,Path,Mod,ClientArgs) ->
-    gen_server:start({local, ?MODULE}, ?MODULE, [{Host,Port,Path,Mod,ClientArgs}], []).
+start(Name,Host,Port,Path,Mod,ClientArgs) ->
+    gen_server:start({local, Name}, ?MODULE, [{Host,Port,Path,Mod,ClientArgs}], []).
 
 init(Args) ->
     process_flag(trap_exit,true),
@@ -77,12 +77,12 @@ init(Args) ->
             
 
 %% Write to the server
-write(Data) ->
-    gen_server:cast(?MODULE,{send,Data}).
+write(Name,Data) ->
+    gen_server:cast(Name,{send,Data}).
 
 %% Close the socket
-close() ->
-    gen_server:cast(?MODULE,close).
+close(Name) ->
+    gen_server:cast(Name,close).
 
 handle_cast({send,Data}, State) ->
     gen_tcp:send(State#state.socket,iolist_to_binary([0,Data,255])),
