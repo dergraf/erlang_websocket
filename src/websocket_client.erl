@@ -66,8 +66,8 @@ start_with_socket(Name,Sock,Data,Mod,ClientArgs) ->
                                  end
                          end),
     ok = gen_tcp:controlling_process(Sock, PID),
-    PID ! start,
     register(Name, PID),
+    PID ! start,
     {ok, PID}.
 
 init(Args) ->
@@ -253,7 +253,7 @@ handle_call(Unknown,From,State) ->
     end.
 
 terminate(Reason, _State) ->
-    error_logger:info_msg("Terminated ~p~n",[Reason]),
+    % error_logger:info_msg("Terminated ~p~n",[Reason]),
     ok.
 
 code_change(_OldVsn, State, _Extra) ->
