@@ -13,7 +13,7 @@
 -behaviour(gen_server).
 
 %% API
--export([start_link/4,start_link/5,start_link/6,start/4,start/5,start/6,write/2,close/1,initial_request/2,initial_request/3]).
+-export([start_link/4,start_link/5,start_link/6,start/4,start/5,start/6,start_with_socket/5,write/2,close/1,initial_request/2,initial_request/3]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -57,22 +57,62 @@ start(Name,Host,Port,Path,Mod) ->
 start(Name,Host,Port,Path,Mod,ClientArgs) ->
     gen_server:start({local, Name}, ?MODULE, [{Host,Port,Path,Mod,ClientArgs}], []).
 
+start_with_socket(Name,Sock,Data,Mod,ClientArgs) ->
+    PID = proc_lib:spawn(fun() ->
+                                 receive 
+                                     start -> 
+                                         {ok, State, Timeout} = init([{Sock,Data,Mod,ClientArgs}]),
+                                         gen_server:enter_loop(?MODULE, [], State, Timeout)
+                                 end
+                         end),
+    ok = gen_tcp:controlling_process(Sock, PID),
+    PID ! start,
+    register(Name, PID),
+    {ok, PID}.
+
 init(Args) ->
     process_flag(trap_exit,true),
-    [{Host,Port,Path,Mod,ClientArgs}] = Args,
-    {ok, Sock} = gen_tcp:connect(Host,Port,[binary,{packet, 0},{active,true}]),
+    case Args of
+        [{Host,Port,Path,Mod,ClientArgs}] ->
+            {ok, Sock} = gen_tcp:connect(Host,Port,[binary,{packet, 0},{active,true}]),
     
-    %% Hardcoded path for now...
-    Req = initial_request(Host,Path),
-    ok = gen_tcp:send(Sock,Req),
-    inet:setopts(Sock, [{packet, http}]),
-    case Mod:oninit(ClientArgs) of
-        {ok, ClientState} ->
-            {ok, #state{socket=Sock,callback=Mod,client_state=ClientState}};
-        {ok, ClientState, Timeout} ->
-            {ok, #state{socket=Sock,callback=Mod,client_state=ClientState}, Timeout};
-        {stop, Reason} ->
-            {stop, Reason}
+            Req = initial_request(Host,Path),
+            ok = gen_tcp:send(Sock,Req),
+            inet:setopts(Sock, [{packet, http}]),
+            case Mod:oninit(ClientArgs) of
+                {ok, ClientState} ->
+                    {ok, #state{socket=Sock,callback=Mod,client_state=ClientState}, infinity};
+                {ok, ClientState, Timeout} ->
+                    {ok, #state{socket=Sock,callback=Mod,client_state=ClientState}, Timeout};
+                {stop, Reason} ->
+                    {stop, Reason}
+            end;
+        [{Sock,Data,Mod,ClientArgs}] ->
+            InitResult = case Mod:oninit(ClientArgs) of
+                             {ok, ClientState0} ->
+                                 {ok, ClientState0, infinity};
+                             {ok, ClientState0, Timeout0} ->
+                                 {ok, ClientState0, Timeout0};
+                             {stop, Reason0} ->
+                                 {stop, Reason0}
+                         end,
+            case InitResult of
+                {ok, ClientState, Timeout} ->
+                    case inet:setopts(Sock, [{active,true}]) of
+                        ok ->
+                            State = #state{socket=Sock,callback=Mod,client_state=ClientState,readystate=?CONNECTING},
+                            case handle_info({tcp, Sock, Data}, State) of
+                                {noreply, State2} ->
+                                    {ok, State2, Timeout};
+                                {stop,Reason,State} ->
+                                    {stop, {init_tcp_error, Reason}}
+                            end;
+                        {error, Reason} ->
+                            {stop, {setopt_error, Reason}}
+                    end;
+                {stop, Reason} ->
+                    {stop, {oninit_error, Reason}}
+            end
     end.
             
 
@@ -145,7 +185,6 @@ handle_info({http,Socket,http_eoh},State) ->
 
 %% Handshake complete, handle packets
 handle_info({tcp, Socket, Data},State) ->
-    % io:format("handle_info({tcp, ~p, ~p}, ~p)~n", [Socket, Data, State]),
     case State#state.readystate of
 	?OPEN ->
         % io:format("Will call unframe with Data = ~p~n", [Data]),
@@ -160,10 +199,19 @@ handle_info({tcp, Socket, Data},State) ->
                                                Chunks),
             {Resp, State#state{client_state=ClientState1, incomplete_chunk=Incomplete}};
     ?CONNECTING ->
-        <<_:16/bytes,Rest/bytes>> = Data,
-        case Rest of 
-        <<>> -> {noreply, State#state{readystate=?OPEN}};
-        _  -> handle_info({tcp, Socket, Rest}, State#state{readystate=?OPEN})
+        IncompleteChunk = case State#state.incomplete_chunk of
+                              undefined -> <<>>;
+                              IC -> IC
+                          end,
+        DataPrefixed = <<IncompleteChunk/bytes, Data/bytes>>,
+        case DataPrefixed of
+            <<_:16/bytes,Rest/bytes>> ->
+                case Rest of 
+                    <<>> -> {noreply, State#state{readystate=?OPEN}};
+                    _  -> handle_info({tcp, Socket, Rest}, State#state{readystate=?OPEN})
+                end;
+            _ ->
+                {noreply, State#state{incomplete_chunk=DataPrefixed}}
         end;
 	_Any ->
 	    {stop,error,State}
@@ -175,7 +223,9 @@ handle_info({tcp_closed, _Socket},State) ->
     {stop,normal,State#state{client_state=ClientState1}};
 
 handle_info({tcp_error, _Socket, _Reason},State) ->
-    {stop,tcp_error,State};
+    Mod = State#state.callback,
+    ClientState1 = Mod:onclose(State#state.client_state),
+    {stop,tcp_error,State#state{client_state=ClientState1}};
 
 handle_info({'EXIT', _Pid, _Reason},State) ->
     {noreply,State};
