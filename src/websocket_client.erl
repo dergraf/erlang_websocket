@@ -219,11 +219,13 @@ handle_info({tcp, Socket, Data},State) ->
 
 handle_info({tcp_closed, _Socket},State) ->
     Mod = State#state.callback,
+    io:format("got tcp_closed~n"),
     ClientState1 = Mod:onclose(State#state.client_state),
     {stop,tcp_closed,State#state{client_state=ClientState1}};
 
 handle_info({tcp_error, _Socket, _Reason},State) ->
     Mod = State#state.callback,
+    io:format("got tcp_error ~p~n", [_Reason]),
     ClientState1 = Mod:onclose(State#state.client_state),
     {stop,tcp_error,State#state{client_state=ClientState1}};
 
