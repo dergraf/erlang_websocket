@@ -192,6 +192,8 @@ handle_info({tcp, Socket, Data},State) ->
             Mod = State#state.callback,	    
             {Resp, ClientState1} = lists:foldl(fun(_Chunk, {stop, ClientState}) -> 
                                                        {stop, ClientState};
+                                                  (close,  {noreply, ClientState}) ->
+                                                       {noreply, ClientState};
                                                   (Chunk,  {noreply, ClientState}) -> 
                                                        Mod:onmessage(Chunk, ClientState)
                                                end,
@@ -281,6 +283,9 @@ initial_request(Host,Path,Cookie) ->
 
 unframe1([0|T], [undefined|Chunks]) ->
     unframe1(T, [[]|Chunks]);
+unframe1([255|T], [undefined|Chunks]) ->
+    close(self()),
+    {lists:reverse([close|Chunks]), []}; 
 unframe1([255|T], [CurChunk|Chunks]) ->
     unframe1(T, [undefined,lists:reverse(CurChunk)|Chunks]);
 unframe1([], [Incomplete|Chunks]) ->
